@@ -20,43 +20,64 @@ import {
 } from "@/components/ui/table"
 import { supabase } from "@/lib/supabase"
 
-type TopicRow = Record<string, string | number | boolean | null>
-
-function formatColumnName(column: string) {
-  return column
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+type PokemonRow = {
+  Num: number
+  Name: string
+  Type1: string
+  Type2: string | null
+  HP: number
+  Attack: number
+  Defense: number
+  SpAtk: number
+  SpDef: number
+  Speed: number
+  Generation: number
+  Legendary: boolean
 }
 
-function formatValue(value: TopicRow[string]) {
-  if (value === null || value === undefined) {
-    return <span className="text-muted-foreground">No value</span>
+const statColumns = [
+  "HP",
+  "Attack",
+  "Defense",
+  "SpAtk",
+  "SpDef",
+  "Speed",
+] as const
+
+function getTypeBadgeVariant(type: string) {
+  if (type === "Normal") {
+    return "secondary"
   }
 
-  if (typeof value === "boolean") {
-    return (
-      <Badge variant={value ? "default" : "secondary"}>
-        {value ? "Yes" : "No"}
-      </Badge>
-    )
+  if (["Poison", "Ghost", "Dark"].includes(type)) {
+    return "outline"
   }
 
-  return String(value)
+  return "default"
+}
+
+function getBaseStatTotal(pokemon: PokemonRow) {
+  return statColumns.reduce((total, stat) => total + pokemon[stat], 0)
 }
 
 export default function Home() {
-  const [topics, setTopics] = useState<TopicRow[]>([])
+  const [pokemon, setPokemon] = useState<PokemonRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   useEffect(() => {
     let isMounted = true
 
-    async function fetchTopics() {
+    async function fetchPokemon() {
       setIsLoading(true)
       setErrorMessage(null)
 
-      const { data, error } = await supabase.from("topics_data").select("*")
+      const { data, error } = await supabase
+        .from("pokemon")
+        .select(
+          "Num, Name, Type1, Type2, HP, Attack, Defense, SpAtk, SpDef, Speed, Generation, Legendary"
+        )
+        .order("Num", { ascending: true })
 
       if (!isMounted) {
         return
@@ -64,25 +85,30 @@ export default function Home() {
 
       if (error) {
         setErrorMessage(error.message)
-        setTopics([])
+        setPokemon([])
       } else {
-        setTopics((data ?? []) as TopicRow[])
+        setPokemon((data ?? []) as PokemonRow[])
       }
 
       setIsLoading(false)
     }
 
-    fetchTopics()
+    fetchPokemon()
 
     return () => {
       isMounted = false
     }
   }, [])
 
-  const columns = useMemo(
-    () => Array.from(new Set(topics.flatMap((topic) => Object.keys(topic)))),
-    [topics]
-  )
+  const summary = useMemo(() => {
+    const typeCount = new Set(
+      pokemon.flatMap((entry) => [entry.Type1, entry.Type2]).filter(Boolean)
+    ).size
+    const legendaryCount = pokemon.filter((entry) => entry.Legendary).length
+    const generations = new Set(pokemon.map((entry) => entry.Generation)).size
+
+    return { typeCount, legendaryCount, generations }
+  }, [pokemon])
 
   return (
     <main className="min-h-screen bg-background px-4 py-8 text-foreground sm:px-6 lg:px-8">
@@ -90,33 +116,63 @@ export default function Home() {
         <header className="flex flex-col gap-3 border-b pb-6 sm:flex-row sm:items-end sm:justify-between">
           <div className="space-y-2">
             <Badge variant="outline" className="w-fit">
-              Supabase Dataset
+              Supabase Pokemon
             </Badge>
             <div>
               <h1 className="text-3xl font-semibold tracking-normal sm:text-4xl">
-                Topics Data
+                Pokemon Dataset
               </h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
-                A live view of records fetched from the topics_data table.
+                A live view of names, types, combat stats, generations, and
+                legendary flags fetched from the pokemon table.
               </p>
             </div>
           </div>
           <Badge variant="secondary" className="w-fit">
-            {isLoading ? "Loading" : `${topics.length} records`}
+            {isLoading ? "Loading" : `${pokemon.length} pokemon`}
           </Badge>
         </header>
 
+        {!isLoading && !errorMessage && pokemon.length > 0 ? (
+          <section className="grid gap-4 sm:grid-cols-3">
+            <Card className="rounded-lg" size="sm">
+              <CardHeader>
+                <CardDescription>Total Pokemon</CardDescription>
+                <CardTitle className="text-2xl">{pokemon.length}</CardTitle>
+              </CardHeader>
+            </Card>
+            <Card className="rounded-lg" size="sm">
+              <CardHeader>
+                <CardDescription>Types Present</CardDescription>
+                <CardTitle className="text-2xl">{summary.typeCount}</CardTitle>
+              </CardHeader>
+            </Card>
+            <Card className="rounded-lg" size="sm">
+              <CardHeader>
+                <CardDescription>Legendary Pokemon</CardDescription>
+                <CardTitle className="text-2xl">
+                  {summary.legendaryCount}
+                  <span className="ml-2 text-sm font-normal text-muted-foreground">
+                    across {summary.generations} generations
+                  </span>
+                </CardTitle>
+              </CardHeader>
+            </Card>
+          </section>
+        ) : null}
+
         <Card className="rounded-lg">
           <CardHeader className="border-b">
-            <CardTitle>Dataset Rows</CardTitle>
+            <CardTitle>Pokemon Stats</CardTitle>
             <CardDescription>
-              Columns are generated from the available Supabase fields.
+              Columns from Supabase: Num, Name, Type1, Type2, HP, Attack,
+              Defense, SpAtk, SpDef, Speed, Generation, and Legendary.
             </CardDescription>
           </CardHeader>
           <CardContent className="p-0">
             {isLoading ? (
               <div className="flex min-h-48 items-center justify-center px-6 text-sm text-muted-foreground">
-                Loading topics_data...
+                Loading pokemon...
               </div>
             ) : errorMessage ? (
               <div className="flex min-h-48 flex-col items-center justify-center gap-3 px-6 text-center">
@@ -125,34 +181,84 @@ export default function Home() {
                   {errorMessage}
                 </p>
               </div>
-            ) : topics.length === 0 ? (
+            ) : pokemon.length === 0 ? (
               <div className="flex min-h-48 items-center justify-center px-6 text-sm text-muted-foreground">
-                No records found in topics_data.
+                No records found in pokemon.
               </div>
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/50 hover:bg-muted/50">
-                    {columns.map((column) => (
-                      <TableHead key={column} className="px-4 py-3">
-                        {formatColumnName(column)}
-                      </TableHead>
-                    ))}
+                    <TableHead className="px-4 py-3">#</TableHead>
+                    <TableHead className="min-w-44 px-4 py-3">Name</TableHead>
+                    <TableHead className="min-w-40 px-4 py-3">Type</TableHead>
+                    <TableHead className="px-4 py-3 text-right">HP</TableHead>
+                    <TableHead className="px-4 py-3 text-right">
+                      Attack
+                    </TableHead>
+                    <TableHead className="px-4 py-3 text-right">
+                      Defense
+                    </TableHead>
+                    <TableHead className="px-4 py-3 text-right">
+                      Sp. Atk
+                    </TableHead>
+                    <TableHead className="px-4 py-3 text-right">
+                      Sp. Def
+                    </TableHead>
+                    <TableHead className="px-4 py-3 text-right">
+                      Speed
+                    </TableHead>
+                    <TableHead className="px-4 py-3 text-right">
+                      Total
+                    </TableHead>
+                    <TableHead className="px-4 py-3 text-right">
+                      Gen
+                    </TableHead>
+                    <TableHead className="px-4 py-3">Legendary</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {topics.map((topic, rowIndex) => (
-                    <TableRow key={rowIndex}>
-                      {columns.map((column) => (
+                  {pokemon.map((entry) => (
+                    <TableRow key={`${entry.Num}-${entry.Name}`}>
+                      <TableCell className="px-4 py-3 font-medium">
+                        {entry.Num}
+                      </TableCell>
+                      <TableCell className="px-4 py-3 font-medium">
+                        {entry.Name}
+                      </TableCell>
+                      <TableCell className="px-4 py-3">
+                        <div className="flex flex-wrap gap-1.5">
+                          <Badge variant={getTypeBadgeVariant(entry.Type1)}>
+                            {entry.Type1}
+                          </Badge>
+                          {entry.Type2 ? (
+                            <Badge variant={getTypeBadgeVariant(entry.Type2)}>
+                              {entry.Type2}
+                            </Badge>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                      {statColumns.map((stat) => (
                         <TableCell
-                          key={`${rowIndex}-${column}`}
-                          className="max-w-72 px-4 py-3 align-top"
+                          key={`${entry.Num}-${entry.Name}-${stat}`}
+                          className="px-4 py-3 text-right tabular-nums"
                         >
-                          <div className="whitespace-normal break-words">
-                            {formatValue(topic[column])}
-                          </div>
+                          {entry[stat]}
                         </TableCell>
                       ))}
+                      <TableCell className="px-4 py-3 text-right font-medium tabular-nums">
+                        {getBaseStatTotal(entry)}
+                      </TableCell>
+                      <TableCell className="px-4 py-3 text-right tabular-nums">
+                        {entry.Generation}
+                      </TableCell>
+                      <TableCell className="px-4 py-3">
+                        <Badge
+                          variant={entry.Legendary ? "default" : "secondary"}
+                        >
+                          {entry.Legendary ? "Yes" : "No"}
+                        </Badge>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
